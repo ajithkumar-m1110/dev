@@ -1,0 +1,60 @@
+---
+- name: hostedtasks-1
+  replace:
+    path: /etc/cron.d/hostedtasks
+    regexp: '^@reboot root sleep 30 && /opt/inmotiontechnology/scripts/hosted/update-dns.sh'
+    replace: '##@reboot root sleep 30 && /opt/inmotiontechnology/scripts/hosted/update-dns.sh'
+
+- name: hostedtasks-2
+  replace:
+    path: /etc/cron.d/hostedtasks
+    regexp: '^(0\s+1\s+[*]?\s+[*]?\s+[*]?\s+)root /opt/inmotiontechnology/scripts/hosted/StopSVC_Snap_StartSVC.sh'
+    replace: '##0 1 * * *  root /opt/inmotiontechnology/scripts/hosted/StopSVC_Snap_StartSVC.sh'
+
+- name: misctasks-1
+  ansible.builtin.lineinfile:
+    path: /etc/cron.d/misctasks
+    regexp: '^(15\s+2\s+[*]?\s+[*]?\s+6\s+)root /opt/inmotiontechnology/scripts/misc/logscleaner.sh'
+    line: '##15 2 * * 6 root /opt/inmotiontechnology/scripts/misc/logscleaner.sh'
+
+- name: misctasks-2
+  ansible.builtin.lineinfile:
+    path: /etc/cron.d/misctasks
+    regexp: '^(15\s+3\s+[*]?\s+[*]?\s+6\s+)root /opt/inmotiontechnology/scripts/misc/purge-root-email.sh'
+    line: '##15 3 * * 6 root /opt/inmotiontechnology/scripts/misc/purge-root-email.sh'
+
+
+- name: ammtasks-1
+  ansible.builtin.lineinfile:
+    path: /etc/cron.d/ammtasks
+    regexp: '^(5\s+23\s+[*]?\s+[*]?\s+[*]?\s+)root /opt/tomcat/webapps/inmotion/WEB-INF/support/ammtasks.sh'
+    line: '##5 23 * * * root /opt/tomcat/webapps/inmotion/WEB-INF/support/ammtasks.sh'
+
+
+- name: ammtasks-2
+  ansible.builtin.lineinfile:
+    path: /etc/cron.d/ammtasks
+    regexp: '^([*]?[/]?5\s+[*]?\s+[*]?\s+[*]?\s+[*]?\s+)root /opt/tomcat/webapps/inmotion/WEB-INF/untarlogs.sh'
+    line: '##*/5 * * * * root /opt/tomcat/webapps/inmotion/WEB-INF/untarlogs.sh'
+
+- name: ammtasks-3
+  ansible.builtin.lineinfile:
+    path: /etc/cron.d/ammtasks
+    regexp: '^([*]?[/]?5\s+[*]?\s+[*]?\s+[*]?\s+[*]?\s+)root /opt/tomcat/webapps/inmotion/WEB-INF/ha/checkreplerror.sh'
+    line: '##*/5 * * * * root /opt/tomcat/webapps/inmotion/WEB-INF/ha/checkreplerror.sh'
+
+- name: Stop all services
+  ansible.builtin.shell: systemctl stop monit delsrx vsftpd sendmail tomcat httpd openvpnmgr@inmotion openvpnmgr@inmotion1 openvpnmgr@inmotion2 openvpnmgr@inmotion3 openvpnmgr@inmotion4 openvpnmgr@inmotion5 openvpnmgr@inmotion6 openvpnmgr@inmotion7
+
+- name: ammctl stop
+  ansible.builtin.shell: ammctl stop
+
+- name: mysql dump
+  ansible.builtin.shell: DBPWD=$(cat /mnt/amm_data/opt/tomcat/webapps/inmotion/config/amm_secure_data) &&
+                         mysqldump -u root --password=$DBPWD -l --opt inmotion | gzip > /mnt/amm_data/inmotion.sql.gz
+
+- name: Stop mysqld and splunk
+  ansible.builtin.shell: systemctl stop mysqld && cd /mnt/amm_data/opt/splunkforwarder/bin && ./splunk stop
+
+- name: Disable all processes
+  ansible.builtin.shell: systemctl disable monit delsrx vsftpd sendmail tomcat httpd openvpnmgr@inmotion openvpnmgr@inmotion1 openvpnmgr@inmotion2 openvpnmgr@inmotion3 openvpnmgr@inmotion4 openvpnmgr@inmotion5 openvpnmgr@inmotion6 openvpnmgr@inmotion7 imtdbloader

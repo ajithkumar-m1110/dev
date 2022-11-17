@@ -1,0 +1,97 @@
+---
+# tasks for Rsync and database dump
+- name: stoping ammctl
+  ansible.builtin.shell: ammctl stop
+
+- name: copying the file
+  ansible.builtin.shell: scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -q -P 2222 "{{ OLDAMM }}":/opt/inmotion/m3da/security.ser /opt/inmotion/m3da/
+
+- name: Change permission of security.ser
+  ansible.builtin.shell: chmod 660 /mnt/amm_data/opt/inmotion/m3da/security.ser
+
+- name: copying the file
+  ansible.builtin.shell: scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 2222 "{{ OLDAMM }}":/mnt/amm_data/inmotion.sql.gz /mnt/amm_data
+
+- name: start mysqld
+  ansible.builtin.shell: systemctl start mysqld
+
+- name: gunzip inmotion file
+  ansible.builtin.shell: gunzip -c /mnt/amm_data/inmotion.sql.gz | mysql -u root --password={{ DBPWD }} inmotion
+
+
+- name: copying files from local to remote
+  ansible.builtin.shell: rsync --info=progress2 --stats -a -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222" {{ OLDAMM }}:/mnt/amm_data/home/inmotion /mnt/amm_data/home/ &&
+                         ICOND="/mnt/amm_data/opt/tomcat/webapps/inmotion/vehicle-icons" &&
+                         scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 2222 {{ OLDAMM }}:$ICOND/* $ICOND
+
+- name: change the ownership for startloader.err
+  ignore_errors: true
+  ansible.builtin.shell: chown inmotion /var/log/inmotion/startloader.err
+
+- name: change the ownership for startloader.log
+  ignore_errors: true
+  ansible.builtin.shell: chown inmotion /var/log/inmotion/startloader.log
+
+- name: change the group
+  ansible.builtin.shell: chgrp inmotion /mnt/amm_data/var/log/inmotion/
+
+- name: change the permission of inmotion
+  ansible.builtin.shell: chmod 775 /mnt/amm_data/var/log/inmotion/
+
+- name: change the ownership for all files in inmotion
+  ignore_errors: true
+  ansible.builtin.shell: chown -RL inmotion /opt/inmotion
+
+
+
+- name: create a link
+  ansible.builtin.shell: ln -s /opt/inmotiontechnology/scripts/hosted/etc-cron.d/hostedtasks /etc/cron.d &&
+                         ln -s /opt/inmotiontechnology/scripts/misc/etc-cron.d/misctasks /etc/cron.d
+
+- name: Update hostname in splunk config
+  ansible.builtin.lineinfile:
+    path: /mnt/amm_data/opt/splunkforwarder/etc/system/local/inputs.conf
+    regexp: '^host = '
+    line: 'host = {{hostname}}'
+
+
+- name: Update FtpNattedAddress in amm.cfg
+  ansible.builtin.lineinfile:
+    path: /mnt/amm_data/opt/tomcat/webapps/inmotion/config/amm.cfg
+    regexp: '^# FtpNattedAddress = '
+    line: 'FtpNattedAddress = {{ pvt_ip }}'
+
+- name: Chaging the hostname in amm.cfg
+  ansible.builtin.lineinfile:
+    path: /mnt/amm_data/opt/tomcat/webapps/inmotion/config/amm.cfg
+    regexp: '^Hostname = '
+    line: 'Hostname = {{ hostname }}'
+
+- name: Change the support hostname in amm.cfg
+  ansible.builtin.lineinfile:
+    path: /mnt/amm_data/opt/tomcat/webapps/inmotion/config/amm.cfg
+    regexp: '^SupportHostname = '
+    line: 'SupportHostname = {{ supporthostname }}'
+
+- name: executing amm config
+  ansible.builtin.shell: amm_config
+
+    #host ammXX.airlink.com
+    #hostname -I or ip a
+
+- name: Start splunk
+  ansible.builtin.shell: cd /mnt/amm_data/opt/splunkforwarder/bin &&
+                         ./splunk start &&
+                         ./splunk enable boot-start
+
+- name: Start and enable CrowdStrike sensor
+  ansible.builtin.shell: sudo systemctl start falcon-sensor &&
+                         systemctl enable falcon-sensor
+
+- name: start iptables
+  ansible.builtin.shell: systemctl start iptables &&
+                         systemctl enable iptables &&
+                         iptables -nvL
+
+- name: reboot the instance
+  ansible.builtin.shell: reboot

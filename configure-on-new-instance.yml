@@ -1,0 +1,81 @@
+---
+- name: Stop amm services
+  ansible.builtin.shell: ammctl stop
+
+- name: Install pexpect
+  ansible.builtin.shell: yum install python3-pexpect.noarch -y
+
+- name: Disk partitioning
+  expect:
+    command: /opt/tomcat/webapps/inmotion/WEB-INF/support/setupNewSdbAsDataDrive.sh nvme1n1
+    timeout: 20
+    responses:
+      " " : "N"
+
+
+- name: Copy keys
+  copy:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: 0600
+  with_items:
+     - { src: /home/amar/.ssh/id_rsa, dest: /root/.ssh/ }
+     - { src: /home/amar/.ssh/id_rsa.pub, dest: /root/.ssh/ }
+
+- name: Set the hostname
+  ansible.builtin.shell: hostnamectl set-hostname {{ hostname }}
+
+
+- name: Adding hostname to /etc/hosts
+  ansible.builtin.blockinfile:
+    path: /etc/hosts
+    block: |
+      {{ OLDAMM_IP }} {{ OLDAMM }}
+
+- name: Test new and old server connection
+  ansible.builtin.shell: ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222 "{{ OLDAMM }}" 'hostname && rpm -q oMM'
+
+- name: copy the CERT_DIR
+  ansible.builtin.shell: scp -q -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P 2222 "{{ OLDAMM }}":"{{CERT_DIR}}"/* "{{CERT_DIR}}"
+  
+- name: Checking the links
+  ansible.builtin.shell: ls -lat /etc/pki/tls/certs/ && ls -lat /mnt/amm_data/opt/inmotion/keystore/ && ls -lat /etc/openvpnmgr/keys/inmotion/
+
+- name: Renaming self signed certs and copying the real ones
+  ansible.builtin.shell: mv /etc/pki/tls/certs/localhost.crt /etc/pki/tls/certs/localhost.crt.self-signed &&
+                         mv /etc/pki/tls/private/localhost.key /etc/pki/tls/private/localhost.key.self-signed &&
+                         ln -s "{{CERT_DIR}}"/myserver.crt /etc/pki/tls/certs/localhost.crt &&
+                         ln -s "{{CERT_DIR}}"/myserver.key /etc/pki/tls/private/localhost.key &&
+                         mv /mnt/amm_data/opt/inmotion/keystore/msci.keystore /mnt/amm_data/opt/inmotion/keystore/msci.keystore.self-signed &&
+                         ln -s "{{CERT_DIR}}"/msci.keystore /mnt/amm_data/opt/inmotion/keystore/msci.keystore &&
+                         mv /etc/openvpnmgr/keys/inmotion/amm-openvpn-cert-chain.crt /etc/openvpnmgr/keys/inmotion/amm-openvpn-cert-chain.crt.self-signed &&
+                         mv /etc/openvpnmgr/keys/inmotion/aleosopenvpn.crt /etc/openvpnmgr/keys/inmotion/aleosopenvpn.crt.self-signed &&
+                         mv /etc/openvpnmgr/keys/inmotion/aleosopenvpn.key /etc/openvpnmgr/keys/inmotion/aleosopenvpn.key.self-signed &&
+                         ln -s "{{CERT_DIR}}"/ca-chain.crt /etc/openvpnmgr/keys/inmotion/amm-openvpn-cert-chain.crt &&
+                         ln -s "{{CERT_DIR}}"/myserver.crt /etc/openvpnmgr/keys/inmotion/aleosopenvpn.crt &&
+                         ln -s "{{CERT_DIR}}"/myserver.key /etc/openvpnmgr/keys/inmotion/aleosopenvpn.key
+
+- name: Add SSLCertificateChainFile entry in /etc/httpd/conf.d/ssl.conf
+  ansible.builtin.blockinfile:
+    path: /etc/httpd/conf.d/ssl.conf
+    block: |
+      SSLCertificateChainFile /etc/pki/tls/certs/ca-bundle.crt
+
+- name: Remove old bundle/chain link and create a new one
+  ansible.builtin.shell: rm /etc/pki/tls/certs/ca-bundle.crt && ln -s "{{CERT_DIR}}"/ca-chain.crt /etc/pki/tls/certs/ca-bundle.crt
+
+- name: Rsync all data from inmotion
+  ansible.builtin.shell: rsync --info=progress2 --stats -a -e "ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -p 2222" "{{ OLDAMM }}":/mnt/amm_data/home/inmotion /mnt/amm_data/home/
+
+- name: change the ownership of msci.keystore to inmotion
+  ignore_errors: true
+  ansible.builtin.shell: chown inmotion /mnt/amm_data/opt/inmotion/keystore/msci.keystore
+
+- name: Create info folder
+  ansible.builtin.shell: touch /mnt/amm_data/opt/tomcat/webapps/inmotion/config/info
+
+- name: Update old DBPWD
+  copy:
+    dest: /mnt/amm_data/opt/tomcat/webapps/inmotion/config/info
+    content: |
+      {{ DBPWD }}

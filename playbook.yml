@@ -1,0 +1,14 @@
+- name: 1) Launch AMI and configure on new instance
+  hosts: newserver
+  roles:
+    - role: configure-on-new-instance
+
+- name: 2) On old server
+  hosts: oldserver
+  roles:
+    - role: on-oldamm
+
+- name: 3) On new server
+  hosts: newserver
+      roles:
+        - role: rsync-database-dump
